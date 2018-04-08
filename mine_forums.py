@@ -7,9 +7,10 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 import io
+from filename import get_my_file_path
 
 #define global variable for paths and data files
-folder_path = 'C:/Users/jwolfgan/Documents/Personal/UT/4b - Machine Learning/Final Project/Data/data_output_cleaned/'
+folder_path = get_my_file_path()
 
 def main():
     #start by loading all data from the folder of txt files
