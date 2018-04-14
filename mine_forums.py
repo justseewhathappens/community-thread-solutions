@@ -6,9 +6,12 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 import io
+import string
 from filename import get_my_file_path
 from nltk.tokenize.moses import MosesTokenizer
+from nltk import word_tokenize
 from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer 
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
@@ -27,7 +30,28 @@ punct_stop_words = ['?','.']
 all_stop_words = stop_words.union(more_stop_words)
 all_stop_words_punct = all_stop_words.union(punct_stop_words)
 
-n_features = 1000 
+n_features = 2000
+
+class LemmaTokenizer(object):
+     def __init__(self):
+         self.wnl = WordNetLemmatizer()
+     def __call__(self, doc):
+        return [self.wnl.lemmatize(t) for t in word_tokenize(doc)]
+
+def train_basic_rf(Xdata, ydata):
+    #Create 70-30 splits
+    Xtrain, Xtest, ytrain, ytest = train_test_split(Xdata, 
+                                                    ydata, 
+                                                    random_state=42, 
+                                                    train_size=.7, 
+                                                    test_size=.3)
+    
+    # print('Baseline')
+    curModel = RandomForestClassifier().fit(Xtrain, ytrain)
+    startTime = time()
+    curTrainAccuracy = curModel.score(Xtest, ytest)     
+    print("Train accuracy score: {:.8f}".format(curTrainAccuracy))
+    print("done in %0.3fs." % (time()-startTime))
 
 def main():
     #start by loading all data from the folder of files
@@ -55,6 +79,9 @@ def main():
     
     #remove odd whitespace chars from unicode that will create odd tokens
     thread_df['Message Bodies'] = [w.replace('\\xa0', ' ').replace('\\n', ' ') for w in thread_df['Message Bodies']]
+    #also remove all punctuation
+    translator = str.maketrans('', '', string.punctuation)
+    thread_df['Message Bodies'] = [s.translate(translator) for s in thread_df['Message Bodies']]
     #print (thread_df['Message Bodies'][1])
     
     #Find how many threads are marked solved
@@ -64,7 +91,8 @@ def main():
     print(f"{num_solved} of {num_threads} threads are solved, or {percent_solved}%")
     
     #Create X and y data
-    thread_X = thread_df.drop(columns=['Solution Count', 'Thread ID', 'Message List', 'User List', 'Message HTML', 'Manual Solve', 'Post Times', 'Message Bodies'])
+    #IF USING TEST FILE: remove column ['Manual Solve']
+    thread_X = thread_df.drop(columns=['Solution Count', 'Thread ID', 'Message List', 'User List', 'Message HTML', 'Post Times', 'Message Bodies'])
     #print (list(thread_X))
     #print (thread_X.head(n=5))
     thread_X_csr = csr_matrix(thread_X.values.astype(int))
@@ -77,7 +105,8 @@ def main():
     tfidf_vectorizer = TfidfVectorizer(max_df=0.95, min_df=2,
                                        max_features=n_features,
                                        strip_accents = 'unicode',
-                                       #tokenizer = mosesTokenizer.tokenize(thread_df['Message Bodies']),
+                                       tokenizer = LemmaTokenizer(),
+                                       ngram_range = (1,3),
                                        stop_words=all_stop_words_punct)
     t0 = time()
     tfidf = tfidf_vectorizer.fit_transform(thread_df['Message Bodies'])
@@ -94,7 +123,7 @@ def main():
     tf_vectorizer = CountVectorizer(max_df=0.95, min_df=2,
                                     max_features=n_features,
                                     strip_accents = 'unicode',
-                                    #tokenizer = mosesTokenizer.tokenize(thread_df['Message Bodies']),
+                                    tokenizer = LemmaTokenizer(),
                                     ngram_range = (1,3),
                                     stop_words=all_stop_words_punct)
     t0 = time()
@@ -104,38 +133,17 @@ def main():
     print (tf_feature_names)
     
     tf_thread_X = hstack((thread_X_csr, tf))
-    #print (tf_thread_X)
+    
+    #try without text data
+    print ('Creating model for no text training...')
+    train_basic_rf(thread_X, thread_y)
     
     #Create 70-30 splits
     print ('Creating model for tfidf training...')
-    Xtrain_tfidf, Xtest_tfidf, ytrain_tfidf, ytest_tfidf = train_test_split(tfidf_thread_X, 
-                                                                            thread_y, 
-                                                                            random_state=42, 
-                                                                            train_size=.7, 
-                                                                            test_size=.3)
-    
-    print('Baseline - tfidf')
-    print(time())
-    curModel = RandomForestClassifier().fit(Xtrain_tfidf, ytrain_tfidf)
-    print(time())
-    curTrainAccuracy = curModel.score(Xtest_tfidf, ytest_tfidf)     
-    print("Train accuracy score, tfidf baseline: {:.8f}".format(curTrainAccuracy))
-    print(time())
+    train_basic_rf(tfidf_thread_X, thread_y)
     
     #Create 70-30 splits
     print ('Creating model for tf training...')
-    Xtrain_tf, Xtest_tf, ytrain_tf, ytest_tf = train_test_split(tf_thread_X, 
-                                                                thread_y, 
-                                                                random_state=42, 
-                                                                train_size=.7, 
-                                                                test_size=.3)
-    
-    print('Baseline - tfidf')
-    print(time())
-    curModel = RandomForestClassifier().fit(Xtrain_tf, ytrain_tf)
-    print(time())
-    curTrainAccuracy = curModel.score(Xtest_tf, ytest_tf)     
-    print("Train accuracy score, tf baseline: {:.8f}".format(curTrainAccuracy))
-    print(time())
+    train_basic_rf(tf_thread_X, thread_y)
     
 if __name__ == '__main__': main()
