@@ -1,6 +1,5 @@
 #libraries
 import re
-import json
 import os
 from time import time
 import pandas as pd
@@ -8,23 +7,16 @@ import numpy as np
 from tqdm import tqdm
 import io
 from filename import get_my_file_path
-import ast
 from nltk.tokenize.moses import MosesTokenizer
 from nltk.corpus import stopwords
-from nltk import bigrams
-from unidecode import unidecode
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.decomposition import PCA
 from sklearn.metrics import accuracy_score
 from sklearn import metrics
 from sklearn.model_selection import train_test_split
 from scipy.sparse import csr_matrix
 from scipy.sparse import hstack
-
-    
-    
+  
 #define global variable for paths and data files
 folder_path = get_my_file_path()
 mosesTokenizer = MosesTokenizer()
@@ -35,44 +27,7 @@ punct_stop_words = ['?','.']
 all_stop_words = stop_words.union(more_stop_words)
 all_stop_words_punct = all_stop_words.union(punct_stop_words)
 
-n_features = 1000
-
-def splitListToRows(row,row_accumulator,target_column):
-    split_row = ast.literal_eval(row[target_column])
-    for s in split_row:
-        s = unidecode(s)
-        new_row = row.to_dict()
-        new_row[target_column] = s
-        row_accumulator.append(new_row)
-
-#tokenize a message and remove stop words
-def splitTokensToRows(row,row_accumulator,target_column):
-    split_row = mosesTokenizer.tokenize(row[target_column])
-    for s in split_row:
-        s_lower = s.lower()
-        if not s_lower in all_stop_words:
-            new_row = row.to_dict()
-            new_row[target_column] = s_lower
-            row_accumulator.append(new_row)
-            
-#tokenize a message to bigrams and remove stop words
-def splitBigramsToRows(row,row_accumulator,target_column):
-    split_row = bigrams(mosesTokenizer.tokenize(row[target_column]))
-    for s in split_row:
-        s_lower0 = s[0].lower()
-        s_lower1 = s[1].lower()
-        if ((not s_lower0 in all_stop_words_punct) and (not s_lower1 in all_stop_words_punct)):
-            new_row = row.to_dict()
-            
-            #to put them in two separate columns
-            #del new_row[target_column]
-            #new_row['word 0'] = s_lower[0]
-            #new_row['word 0'] = s_lower[0]
-            
-            #to put them in the same column
-            new_row[target_column] = ' '.join([s_lower0, s_lower1])
-            
-            row_accumulator.append(new_row)  
+n_features = 1000 
 
 def main():
     #start by loading all data from the folder of files
@@ -110,29 +65,12 @@ def main():
     
     #Create X and y data
     thread_X = thread_df.drop(columns=['Solution Count', 'Thread ID', 'Message List', 'User List', 'Message HTML', 'Manual Solve', 'Post Times', 'Message Bodies'])
-    print (list(thread_X))
-    print (thread_X.head(n=5))
+    #print (list(thread_X))
+    #print (thread_X.head(n=5))
     thread_X_csr = csr_matrix(thread_X.values.astype(int))
-    print(thread_X_csr)
+    #print(thread_X_csr)
     thread_y = thread_df['Solution Count']
-    # print (type(thread_y))
-    # print (thread_y)
-    
-    #create a dataframe of the messages, for tokenizing
-    #message_df = thread_df[['Thread ID','Message Bodies']]
-    #print (list(message_df))
-    #print (message_df.head(n=20))
-    #print (type(message_df['Message Bodies'][0]))
 
-    #split the list of messages into rows
-    #new_rows = []
-    #target_column = 'Message Bodies'
-    #message_df.apply(splitListToRows,axis=1,args = (new_rows,target_column))
-    #print ("new rows acquired")
-    #print (type(new_rows))
-    #print (new_rows[0:10])
-    #new_msg_df = pd.DataFrame(new_rows)
-    #print (new_msg_df['Message Bodies'][0])
     
     # Use tf-idf features
     print("Extracting tf-idf features...")
@@ -146,38 +84,58 @@ def main():
     print("done in %0.3fs." % (time() - t0))
     tfidf_feature_names = tfidf_vectorizer.get_feature_names()
     print (tfidf_feature_names)
-    print (type(tfidf))
+    #print (type(tfidf))
     
     tfidf_thread_X = hstack((thread_X_csr, tfidf))
-    print (tfidf_thread_X)
+    #print (tfidf_thread_X)
     
-    # Use tf (raw term count)
-    # print("Extracting tf features...")
-    # tf_vectorizer = CountVectorizer(max_df=0.95, min_df=2,
-    #                                 max_features=n_features,
-    #                                 strip_accents = 'unicode',
-    #                                 #tokenizer = mosesTokenizer.tokenize(thread_df['Message Bodies']),
-    #                                 ngram_range = (1,3),
-    #                                 stop_words=all_stop_words_punct)
-    # t0 = time()
-    # tf = tf_vectorizer.fit_transform(thread_df['Message Bodies'])
-    # print("done in %0.3fs." % (time() - t0))
-    # tf_feature_names = tf_vectorizer.get_feature_names()
-    # print (tf_feature_names)
-    # 
+    #Use tf (raw term count)
+    print("Extracting tf features...")
+    tf_vectorizer = CountVectorizer(max_df=0.95, min_df=2,
+                                    max_features=n_features,
+                                    strip_accents = 'unicode',
+                                    #tokenizer = mosesTokenizer.tokenize(thread_df['Message Bodies']),
+                                    ngram_range = (1,3),
+                                    stop_words=all_stop_words_punct)
+    t0 = time()
+    tf = tf_vectorizer.fit_transform(thread_df['Message Bodies'])
+    print("done in %0.3fs." % (time() - t0))
+    tf_feature_names = tf_vectorizer.get_feature_names()
+    print (tf_feature_names)
+    
+    tf_thread_X = hstack((thread_X_csr, tf))
+    #print (tf_thread_X)
+    
     #Create 70-30 splits
-    Xtrain, Xtest, ytrain, ytest = train_test_split(tfidf_thread_X, 
-                                                    thread_y, 
-                                                    random_state=42, 
-                                                    train_size=.7, 
-                                                    test_size=.3)
+    print ('Creating model for tfidf training...')
+    Xtrain_tfidf, Xtest_tfidf, ytrain_tfidf, ytest_tfidf = train_test_split(tfidf_thread_X, 
+                                                                            thread_y, 
+                                                                            random_state=42, 
+                                                                            train_size=.7, 
+                                                                            test_size=.3)
     
-    print('Baseline')
+    print('Baseline - tfidf')
     print(time())
-    curModel = RandomForestClassifier().fit(Xtrain, ytrain)
+    curModel = RandomForestClassifier().fit(Xtrain_tfidf, ytrain_tfidf)
     print(time())
-    curTrainAccuracy = curModel.score(Xtrain, ytrain)     
-    print("Train accuracy score, baseline: {:.8f}".format(curTrainAccuracy))
+    curTrainAccuracy = curModel.score(Xtest_tfidf, ytest_tfidf)     
+    print("Train accuracy score, tfidf baseline: {:.8f}".format(curTrainAccuracy))
+    print(time())
+    
+    #Create 70-30 splits
+    print ('Creating model for tf training...')
+    Xtrain_tf, Xtest_tf, ytrain_tf, ytest_tf = train_test_split(tf_thread_X, 
+                                                                thread_y, 
+                                                                random_state=42, 
+                                                                train_size=.7, 
+                                                                test_size=.3)
+    
+    print('Baseline - tfidf')
+    print(time())
+    curModel = RandomForestClassifier().fit(Xtrain_tf, ytrain_tf)
+    print(time())
+    curTrainAccuracy = curModel.score(Xtest_tf, ytest_tf)     
+    print("Train accuracy score, tf baseline: {:.8f}".format(curTrainAccuracy))
     print(time())
     
 if __name__ == '__main__': main()
