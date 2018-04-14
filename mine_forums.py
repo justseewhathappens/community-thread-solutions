@@ -14,7 +14,17 @@ from nltk.corpus import stopwords
 from nltk import bigrams
 from unidecode import unidecode
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.decomposition import PCA
+from sklearn.metrics import accuracy_score
+from sklearn import metrics
+from sklearn.model_selection import train_test_split
+from scipy.sparse import csr_matrix
+from scipy.sparse import hstack
 
+    
+    
 #define global variable for paths and data files
 folder_path = get_my_file_path()
 mosesTokenizer = MosesTokenizer()
@@ -85,14 +95,28 @@ def main():
         
     print ("Final threads df:")
     print (list(thread_df))
-    #print (thread_df.head(n=5))
-    #print (thread_df['Message HTML'][1])
+    print (thread_df.head(n=5))
+    #print (thread_df['Message Bodies'][1])
+    
+    #remove odd whitespace chars from unicode that will create odd tokens
+    thread_df['Message Bodies'] = [w.replace('\\xa0', ' ').replace('\\n', ' ') for w in thread_df['Message Bodies']]
+    #print (thread_df['Message Bodies'][1])
     
     #Find how many threads are marked solved
     num_solved = sum(thread_df['Solution Count']>0)
     num_threads = len(thread_df)
     percent_solved = (num_solved/num_threads)*100
     print(f"{num_solved} of {num_threads} threads are solved, or {percent_solved}%")
+    
+    #Create X and y data
+    thread_X = thread_df.drop(columns=['Solution Count', 'Thread ID', 'Message List', 'User List', 'Message HTML', 'Manual Solve', 'Post Times', 'Message Bodies'])
+    print (list(thread_X))
+    print (thread_X.head(n=5))
+    thread_X_csr = csr_matrix(thread_X.values.astype(int))
+    print(thread_X_csr)
+    thread_y = thread_df['Solution Count']
+    # print (type(thread_y))
+    # print (thread_y)
     
     #create a dataframe of the messages, for tokenizing
     #message_df = thread_df[['Thread ID','Message Bodies']]
@@ -115,26 +139,45 @@ def main():
     tfidf_vectorizer = TfidfVectorizer(max_df=0.95, min_df=2,
                                        max_features=n_features,
                                        strip_accents = 'unicode',
-                                       tokenizer = mosesTokenizer.tokenize(thread_df['Message Bodies']),
+                                       #tokenizer = mosesTokenizer.tokenize(thread_df['Message Bodies']),
                                        stop_words=all_stop_words_punct)
     t0 = time()
     tfidf = tfidf_vectorizer.fit_transform(thread_df['Message Bodies'])
     print("done in %0.3fs." % (time() - t0))
     tfidf_feature_names = tfidf_vectorizer.get_feature_names()
     print (tfidf_feature_names)
+    print (type(tfidf))
+    
+    tfidf_thread_X = hstack((thread_X_csr, tfidf))
+    print (tfidf_thread_X)
     
     # Use tf (raw term count)
-    print("Extracting tf features...")
-    tf_vectorizer = CountVectorizer(max_df=0.95, min_df=2,
-                                    max_features=n_features,
-                                    strip_accents = 'unicode',
-                                    tokenizer = mosesTokenizer.tokenize(thread_df['Message Bodies']),
-                                    ngram_range = (1,3),
-                                    stop_words=all_stop_words_punct)
-    t0 = time()
-    tf = tf_vectorizer.fit_transform(thread_df['Message Bodies'])
-    print("done in %0.3fs." % (time() - t0))
-    tf_feature_names = tf_vectorizer.get_feature_names()
-    print (tf_feature_names)
+    # print("Extracting tf features...")
+    # tf_vectorizer = CountVectorizer(max_df=0.95, min_df=2,
+    #                                 max_features=n_features,
+    #                                 strip_accents = 'unicode',
+    #                                 #tokenizer = mosesTokenizer.tokenize(thread_df['Message Bodies']),
+    #                                 ngram_range = (1,3),
+    #                                 stop_words=all_stop_words_punct)
+    # t0 = time()
+    # tf = tf_vectorizer.fit_transform(thread_df['Message Bodies'])
+    # print("done in %0.3fs." % (time() - t0))
+    # tf_feature_names = tf_vectorizer.get_feature_names()
+    # print (tf_feature_names)
+    # 
+    #Create 70-30 splits
+    Xtrain, Xtest, ytrain, ytest = train_test_split(tfidf_thread_X, 
+                                                    thread_y, 
+                                                    random_state=42, 
+                                                    train_size=.7, 
+                                                    test_size=.3)
+    
+    print('Baseline')
+    print(time())
+    curModel = RandomForestClassifier().fit(Xtrain, ytrain)
+    print(time())
+    curTrainAccuracy = curModel.score(Xtrain, ytrain)     
+    print("Train accuracy score, baseline: {:.8f}".format(curTrainAccuracy))
+    print(time())
     
 if __name__ == '__main__': main()
