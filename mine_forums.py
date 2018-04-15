@@ -10,6 +10,7 @@ import string
 from filename import get_my_file_path
 from nltk.tokenize.moses import MosesTokenizer
 from nltk import word_tokenize
+from nltk import pos_tag
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer 
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
@@ -19,6 +20,8 @@ from sklearn import metrics
 from sklearn.model_selection import train_test_split
 from scipy.sparse import csr_matrix
 from scipy.sparse import hstack
+from collections import Counter
+from imblearn.under_sampling import NeighbourhoodCleaningRule 
   
 #define global variable for paths and data files
 folder_path = get_my_file_path()
@@ -36,7 +39,35 @@ class LemmaTokenizer(object):
      def __init__(self):
          self.wnl = WordNetLemmatizer()
      def __call__(self, doc):
-        return [self.wnl.lemmatize(t) for t in word_tokenize(doc)]
+        #Part-Of-Speech Tagged and Word Tokenized 
+        tagged = pos_tag((word_tokenize(doc)))
+        lems = []
+
+        #For each tagged word, lemmatize the nouns, verbs, and adjectives
+        for w,t in tagged:
+
+            ## { Part-of-speech constants
+            ## ADJ, ADJ_SAT, ADV, NOUN, VERB = 'a', 's', 'r', 'n', 'v'
+            ## }
+
+            #temporay variable to potentially change the word
+            l = w 
+            #noun
+            if(t[0] == 'N'):
+                l = self.wnl.lemmatize(w, 'n')
+            #verb
+            elif(t[0] == 'V'):
+                l = self.wnl.lemmatize(w, 'v')
+            #adjective    
+            elif(t[0] == 'J'):
+                l = self.wnl.lemmatize(w, 'a')
+    
+            lems.append(l)    
+            # if(l != w):
+            #     print('{} {} {}'.format(w,t,l))
+
+        #return list of lemmed words
+        return lems
 
 def train_basic_rf(Xdata, ydata):
     #Create 70-30 splits
@@ -97,8 +128,8 @@ def main():
     #print (thread_X.head(n=5))
     thread_X_csr = csr_matrix(thread_X.values.astype(int))
     #print(thread_X_csr)
-    thread_y = thread_df['Solution Count']
-
+    thread_y = [False if x==0 else True for x in thread_df['Solution Count']]
+    print('{} {}'.format(thread_y[0:10],thread_df['Solution Count'][0:10]))
     
     # Use tf-idf features
     print("Extracting tf-idf features...")
@@ -134,16 +165,23 @@ def main():
     
     tf_thread_X = hstack((thread_X_csr, tf))
     
+    print('Original dataset shape {}'.format(Counter(thread_y)))
+    ncr = NeighbourhoodCleaningRule(random_state=42)
+    tfidf_thread_X_res, tfidf_thread_y_res = ncr.fit_sample(tfidf_thread_X, thread_y)
+    tf_thread_X_res, tf_thread_y_res = ncr.fit_sample(tf_thread_X, thread_y)
+    thread_X_res, thread_y_res = ncr.fit_sample(thread_X, thread_y)
+    print('Resampled dataset shape {}'.format(Counter(thread_y_res)))
+    
     #try without text data
     print ('Creating model for no text training...')
-    train_basic_rf(thread_X, thread_y)
+    train_basic_rf(thread_X_res, thread_y_res)
     
     #Create 70-30 splits
     print ('Creating model for tfidf training...')
-    train_basic_rf(tfidf_thread_X, thread_y)
+    train_basic_rf(tfidf_thread_X, tfidf_thread_y)
     
     #Create 70-30 splits
     print ('Creating model for tf training...')
-    train_basic_rf(tf_thread_X, thread_y)
+    train_basic_rf(tf_thread_X_res, tf_thread_y_res)
     
 if __name__ == '__main__': main()
