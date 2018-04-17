@@ -121,7 +121,11 @@ def main():
     percent_solved = (num_solved/num_threads)*100
     print(f"{num_solved} of {num_threads} threads are solved, or {percent_solved}%")
     
-    #Create X and y data
+    ###INSERT HTML FEATURE EXTRACTION HERE###
+    
+    ###CREATE TRAIN TEST SPLITS HERE###
+    
+    #Create X and y data for train and test
     #IF USING TEST FILE: remove column ['Manual Solve']
     thread_X = thread_df.drop(columns=['Solution Count', 'Thread ID', 'Message List', 'User List', 'Message HTML', 'Post Times', 'Message Bodies'])
     #print (list(thread_X))
@@ -130,6 +134,12 @@ def main():
     #print(thread_X_csr)
     thread_y = [False if x==0 else True for x in thread_df['Solution Count']]
     print('{} {}'.format(thread_y[0:10],thread_df['Solution Count'][0:10]))
+    
+    ###MOVE RESAMPLING HERE###
+    #Do it before extracting features, but only on train
+    
+    ###EXTRACT CONTENT FEATURES HERE ON TRAIN ONLY###
+    #Transform on both train and test
     
     # Use tf-idf features
     print("Extracting tf-idf features...")
@@ -140,14 +150,16 @@ def main():
                                        ngram_range = (1,3),
                                        stop_words=all_stop_words_punct)
     t0 = time()
-    tfidf = tfidf_vectorizer.fit_transform(thread_df['Message Bodies'])
+    tfidf = tfidf_vectorizer.fit_transform(thread_df['Message Bodies'])  #Change this to train only
+    #transform on test here
     print("done in %0.3fs." % (time() - t0))
-    tfidf_feature_names = tfidf_vectorizer.get_feature_names()
-    print (tfidf_feature_names)
+    #tfidf_feature_names = tfidf_vectorizer.get_feature_names()
+    #print (tfidf_feature_names)
     #print (type(tfidf))
     
-    tfidf_thread_X = hstack((thread_X_csr, tfidf))
-    #print (tfidf_thread_X)
+    #Builds the final feature set of user, thread, and content features
+    tfidf_thread_X = hstack((thread_X_csr, tfidf)) #Change this to train only
+    #add test here
     
     #Use tf (raw term count)
     print("Extracting tf features...")
@@ -158,13 +170,17 @@ def main():
                                     ngram_range = (1,3),
                                     stop_words=all_stop_words_punct)
     t0 = time()
-    tf = tf_vectorizer.fit_transform(thread_df['Message Bodies'])
+    tf = tf_vectorizer.fit_transform(thread_df['Message Bodies'])  #Change this to train only
+    #transform on test here
     print("done in %0.3fs." % (time() - t0))
-    tf_feature_names = tf_vectorizer.get_feature_names()
-    print (tf_feature_names)
+    #tf_feature_names = tf_vectorizer.get_feature_names()
+    #print (tf_feature_names)
     
-    tf_thread_X = hstack((thread_X_csr, tf))
+    #Builds the final feature set of user, thread, and content features
+    tf_thread_X = hstack((thread_X_csr, tf))  #Change this to train only
+    #add test here
     
+    #NEED TO MOVE THIS
     print('Original dataset shape {}'.format(Counter(thread_y)))
     rus = RandomUnderSampler(random_state=42)
     tfidf_thread_X_res, tfidf_thread_y_res = rus.fit_sample(tfidf_thread_X, thread_y)
@@ -172,6 +188,7 @@ def main():
     thread_X_res, thread_y_res = rus.fit_sample(thread_X, thread_y)
     print('Resampled dataset shape {}'.format(Counter(thread_y_res)))
     
+    ###CAN IGNORE EVERYTHING UNDER HERE THAT TRAINS###
     #try without text data
     print ('Creating model for no text training...')
     train_basic_rf(thread_X_res, thread_y_res)
