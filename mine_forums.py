@@ -21,7 +21,7 @@ from sklearn.model_selection import train_test_split
 from scipy.sparse import csr_matrix
 from scipy.sparse import hstack
 from collections import Counter
-from imblearn.under_sampling import NeighbourhoodCleaningRule 
+from imblearn.under_sampling import RandomUnderSampler 
   
 #define global variable for paths and data files
 folder_path = get_my_file_path()
@@ -166,10 +166,10 @@ def main():
     tf_thread_X = hstack((thread_X_csr, tf))
     
     print('Original dataset shape {}'.format(Counter(thread_y)))
-    ncr = NeighbourhoodCleaningRule(random_state=42)
-    tfidf_thread_X_res, tfidf_thread_y_res = ncr.fit_sample(tfidf_thread_X, thread_y)
-    tf_thread_X_res, tf_thread_y_res = ncr.fit_sample(tf_thread_X, thread_y)
-    thread_X_res, thread_y_res = ncr.fit_sample(thread_X, thread_y)
+    rus = RandomUnderSampler(random_state=42)
+    tfidf_thread_X_res, tfidf_thread_y_res = rus.fit_sample(tfidf_thread_X, thread_y)
+    tf_thread_X_res, tf_thread_y_res = rus.fit_sample(tf_thread_X, thread_y)
+    thread_X_res, thread_y_res = rus.fit_sample(thread_X, thread_y)
     print('Resampled dataset shape {}'.format(Counter(thread_y_res)))
     
     #try without text data
@@ -178,7 +178,7 @@ def main():
     
     #Create 70-30 splits
     print ('Creating model for tfidf training...')
-    train_basic_rf(tfidf_thread_X, tfidf_thread_y)
+    train_basic_rf(tfidf_thread_X_res, tfidf_thread_y_res)
     
     #Create 70-30 splits
     print ('Creating model for tf training...')
