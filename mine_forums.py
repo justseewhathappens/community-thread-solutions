@@ -1,22 +1,31 @@
 #libraries
 import re
-import json
 import os
-import time
+from time import time
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
 import io
+import string
 from filename import get_my_file_path
-import ast
 from nltk.tokenize.moses import MosesTokenizer
+from nltk import word_tokenize
+from nltk import pos_tag
 from nltk.corpus import stopwords
-from nltk import bigrams
-from unidecode import unidecode
-
+from nltk.stem import WordNetLemmatizer 
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+from sklearn import metrics
+from sklearn.model_selection import train_test_split
+from scipy.sparse import csr_matrix
+from scipy.sparse import hstack
+from collections import Counter
+from imblearn.under_sampling import RandomUnderSampler 
+  
 #define global variable for paths and data files
 folder_path = get_my_file_path()
-t = MosesTokenizer()
+mosesTokenizer = MosesTokenizer()
 stop_words = set(stopwords.words('english'))
 more_stop_words = [',','&quot;','(',')','/','&apos;t','&apos;re','&apos;s','&apos;ve','&gt;','+','~','-','*','\\',':','--', '\'',
                    '#','$','%','&amp;','&apos;','&apos;d','&apos;ll','&apos;m','..','...','....','"']
@@ -24,42 +33,56 @@ punct_stop_words = ['?','.']
 all_stop_words = stop_words.union(more_stop_words)
 all_stop_words_punct = all_stop_words.union(punct_stop_words)
 
-def splitListToRows(row,row_accumulator,target_column):
-    split_row = ast.literal_eval(row[target_column])
-    for s in split_row:
-        s = unidecode(s)
-        new_row = row.to_dict()
-        new_row[target_column] = s
-        row_accumulator.append(new_row)
+n_features = 2000
 
-#tokenize a message and remove stop words
-def splitTokensToRows(row,row_accumulator,target_column):
-    split_row = t.tokenize(row[target_column])
-    for s in split_row:
-        s_lower = s.lower()
-        if not s_lower in all_stop_words:
-            new_row = row.to_dict()
-            new_row[target_column] = s_lower
-            row_accumulator.append(new_row)
-            
-#tokenize a message to bigrams and remove stop words
-def splitBigramsToRows(row,row_accumulator,target_column):
-    split_row = bigrams(t.tokenize(row[target_column]))
-    for s in split_row:
-        s_lower0 = s[0].lower()
-        s_lower1 = s[1].lower()
-        if ((not s_lower0 in all_stop_words_punct) and (not s_lower1 in all_stop_words_punct)):
-            new_row = row.to_dict()
-            
-            #to put them in two separate columns
-            #del new_row[target_column]
-            #new_row['word 0'] = s_lower[0]
-            #new_row['word 0'] = s_lower[0]
-            
-            #to put them in the same column
-            new_row[target_column] = ' '.join([s_lower0, s_lower1])
-            
-            row_accumulator.append(new_row)  
+class LemmaTokenizer(object):
+     def __init__(self):
+         self.wnl = WordNetLemmatizer()
+     def __call__(self, doc):
+        #Part-Of-Speech Tagged and Word Tokenized 
+        tagged = pos_tag((word_tokenize(doc)))
+        lems = []
+
+        #For each tagged word, lemmatize the nouns, verbs, and adjectives
+        for w,t in tagged:
+
+            ## { Part-of-speech constants
+            ## ADJ, ADJ_SAT, ADV, NOUN, VERB = 'a', 's', 'r', 'n', 'v'
+            ## }
+
+            #temporay variable to potentially change the word
+            l = w 
+            #noun
+            if(t[0] == 'N'):
+                l = self.wnl.lemmatize(w, 'n')
+            #verb
+            elif(t[0] == 'V'):
+                l = self.wnl.lemmatize(w, 'v')
+            #adjective    
+            elif(t[0] == 'J'):
+                l = self.wnl.lemmatize(w, 'a')
+    
+            lems.append(l)    
+            # if(l != w):
+            #     print('{} {} {}'.format(w,t,l))
+
+        #return list of lemmed words
+        return lems
+
+def train_basic_rf(Xdata, ydata):
+    #Create 70-30 splits
+    Xtrain, Xtest, ytrain, ytest = train_test_split(Xdata, 
+                                                    ydata, 
+                                                    random_state=42, 
+                                                    train_size=.7, 
+                                                    test_size=.3)
+    
+    # print('Baseline')
+    curModel = RandomForestClassifier().fit(Xtrain, ytrain)
+    startTime = time()
+    curTrainAccuracy = curModel.score(Xtest, ytest)     
+    print("Train accuracy score: {:.8f}".format(curTrainAccuracy))
+    print("done in %0.3fs." % (time()-startTime))
 
 def main():
     #start by loading all data from the folder of files
@@ -82,8 +105,15 @@ def main():
         
     print ("Final threads df:")
     print (list(thread_df))
-    #print (thread_df.head(n=5))
-    #print (thread_df['Message HTML'][1])
+    print (thread_df.head(n=5))
+    #print (thread_df['Message Bodies'][1])
+    
+    #remove odd whitespace chars from unicode that will create odd tokens
+    thread_df['Message Bodies'] = [w.replace('\\xa0', ' ').replace('\\n', ' ') for w in thread_df['Message Bodies']]
+    #also remove all punctuation
+    translator = str.maketrans('', '', string.punctuation)
+    thread_df['Message Bodies'] = [s.translate(translator) for s in thread_df['Message Bodies']]
+    #print (thread_df['Message Bodies'][1])
     
     #Find how many threads are marked solved
     num_solved = sum(thread_df['Solution Count']>0)
@@ -91,63 +121,67 @@ def main():
     percent_solved = (num_solved/num_threads)*100
     print(f"{num_solved} of {num_threads} threads are solved, or {percent_solved}%")
     
-    #create a dataframe of the messages, for tokenizing
-    message_df = thread_df[['Thread ID','Message Bodies']]
-    print (list(message_df))
-    print (message_df.head(n=20))
-    print (type(message_df['Message Bodies'][0]))
-
-    #split the list of messages into rows
-    new_rows = []
-    target_column = 'Message Bodies'
-    message_df.apply(splitListToRows,axis=1,args = (new_rows,target_column))
-    new_msg_df = pd.DataFrame(new_rows)
-    print (new_msg_df['Message Bodies'][0])
+    #Create X and y data
+    #IF USING TEST FILE: remove column ['Manual Solve']
+    thread_X = thread_df.drop(columns=['Solution Count', 'Thread ID', 'Message List', 'User List', 'Message HTML', 'Post Times', 'Message Bodies'])
+    #print (list(thread_X))
+    #print (thread_X.head(n=5))
+    thread_X_csr = csr_matrix(thread_X.values.astype(int))
+    #print(thread_X_csr)
+    thread_y = [False if x==0 else True for x in thread_df['Solution Count']]
+    print('{} {}'.format(thread_y[0:10],thread_df['Solution Count'][0:10]))
     
-    ###TOKENS###
-    #split the messages into lists of tokens - target column is still message bodies
-    new_rows = []  #reinitialize
-    new_msg_df.apply(splitTokensToRows,axis=1,args = (new_rows,target_column))
-    token_df = pd.DataFrame(new_rows)
-    print (token_df.head(n=20))
-       
-    #get count of all tokens and see most common 
-    token_counts = token_df['Message Bodies'].value_counts()
-    num_unique_tokens = len(token_counts)
-    print(f'num tokens: {num_unique_tokens}')
-    print(token_counts[0:20])
+    # Use tf-idf features
+    print("Extracting tf-idf features...")
+    tfidf_vectorizer = TfidfVectorizer(max_df=0.95, min_df=2,
+                                       max_features=n_features,
+                                       strip_accents = 'unicode',
+                                       tokenizer = LemmaTokenizer(),
+                                       ngram_range = (1,3),
+                                       stop_words=all_stop_words_punct)
+    t0 = time()
+    tfidf = tfidf_vectorizer.fit_transform(thread_df['Message Bodies'])
+    print("done in %0.3fs." % (time() - t0))
+    tfidf_feature_names = tfidf_vectorizer.get_feature_names()
+    print (tfidf_feature_names)
+    #print (type(tfidf))
     
-    #see count of tokens per thread
-    #this will output a 3 column series that needs to be converted to a df and unstacked
-    token_counts_thread = token_df['Message Bodies'].groupby(token_df['Thread ID']).value_counts()
-    #print ("\n\nAfter first calculation...")
-    #print(token_counts_thread[0:20])
-    token_counts_thread_df =pd.DataFrame(token_counts_thread)
-    #print ("\n\nAfter conversion to DF...")
-    #print (token_counts_thread_df.head(n=20))
-    token_counts_thread_df = token_counts_thread_df.unstack(fill_value=0)
-    print ("\n\nAfter unstacking...")
-    print (token_counts_thread_df.head(n=20))
-
+    tfidf_thread_X = hstack((thread_X_csr, tfidf))
+    #print (tfidf_thread_X)
     
-    ###BIGRAMS###
-    #split the messages into lists of bigrams - target column is still message bodies
-    new_rows = []  #reinitialize
-    new_msg_df.apply(splitBigramsToRows,axis=1,args = (new_rows,target_column))
-    bigram_df = pd.DataFrame(new_rows)
-    print (bigram_df.head(n=20))
-       
-    #get count of all tokens and see most common 
-    bigram_counts = bigram_df['Message Bodies'].value_counts()
-    num_unique_bigrams = len(bigram_counts)
-    print(f'num bigrams: {num_unique_bigrams}')
-    print(bigram_counts[0:20])
+    #Use tf (raw term count)
+    print("Extracting tf features...")
+    tf_vectorizer = CountVectorizer(max_df=0.95, min_df=2,
+                                    max_features=n_features,
+                                    strip_accents = 'unicode',
+                                    tokenizer = LemmaTokenizer(),
+                                    ngram_range = (1,3),
+                                    stop_words=all_stop_words_punct)
+    t0 = time()
+    tf = tf_vectorizer.fit_transform(thread_df['Message Bodies'])
+    print("done in %0.3fs." % (time() - t0))
+    tf_feature_names = tf_vectorizer.get_feature_names()
+    print (tf_feature_names)
     
-    #see count of bigrams per thread
-    #this will output a 3 column series that needs to be converted to a df and unstacked
-    bigram_counts_thread = bigram_df['Message Bodies'].groupby(bigram_df['Thread ID']).value_counts()
-    bigram_counts_thread_df =pd.DataFrame(bigram_counts_thread).unstack(fill_value=0)
-    print ("\n\nAfter unstacking bigrams...")
-    print (bigram_counts_thread_df.head(n=20))
+    tf_thread_X = hstack((thread_X_csr, tf))
+    
+    print('Original dataset shape {}'.format(Counter(thread_y)))
+    rus = RandomUnderSampler(random_state=42)
+    tfidf_thread_X_res, tfidf_thread_y_res = rus.fit_sample(tfidf_thread_X, thread_y)
+    tf_thread_X_res, tf_thread_y_res = rus.fit_sample(tf_thread_X, thread_y)
+    thread_X_res, thread_y_res = rus.fit_sample(thread_X, thread_y)
+    print('Resampled dataset shape {}'.format(Counter(thread_y_res)))
+    
+    #try without text data
+    print ('Creating model for no text training...')
+    train_basic_rf(thread_X_res, thread_y_res)
+    
+    #Create 70-30 splits
+    print ('Creating model for tfidf training...')
+    train_basic_rf(tfidf_thread_X_res, tfidf_thread_y_res)
+    
+    #Create 70-30 splits
+    print ('Creating model for tf training...')
+    train_basic_rf(tf_thread_X_res, tf_thread_y_res)
     
 if __name__ == '__main__': main()
