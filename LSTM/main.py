@@ -12,7 +12,9 @@ from sklearn.model_selection import train_test_split
 
 from nltk import word_tokenize
 
-full_file_path = 'C:\\Documents\\Python\\Final_Project\\DataSort\\'
+from filename import get_my_file_path
+
+full_file_path = get_my_file_path()
 verbose = False
 
 ######################
@@ -20,12 +22,12 @@ verbose = False
 ######################
 print('Starting word embeddings...')
 #this embedding drops any words that occur less than 5 times
-#word_embedding_model = do_word_embedding(full_file_path)
-#word_embedding_model.save('word_embedding_model.mod')
+word_embedding_model = do_word_embedding(full_file_path)
+word_embedding_model.save('word_embedding_model.mod')
      
 #Word Embedding: load embedding from file 
 wemb = gensim.models.Word2Vec.load('word_embedding_model.mod')
-wemb_size = wemb['bob'].shape[0]
+#wemb_size = wemb['bob'].shape[0]
 
 #Get list of keys
 keys = wemb.wv.vocab
