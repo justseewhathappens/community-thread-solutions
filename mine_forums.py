@@ -21,7 +21,15 @@ from sklearn.model_selection import train_test_split
 from scipy.sparse import csr_matrix
 from scipy.sparse import hstack
 from collections import Counter
-from imblearn.under_sampling import RandomUnderSampler 
+from imblearn.under_sampling import RandomUnderSampler
+from sklearn.preprocessing import StandardScaler
+
+def standardscale(X_train, X_test):
+    # transform scale of data
+    ss = StandardScaler()
+    X_train_scaled = ss.fit_transform(X_train)
+    X_test_scaled = ss.transform(X_test)
+    return X_train_scaled, X_test_scaled
   
 #define global variable for paths and data files
 folder_path = get_my_file_path()
@@ -141,64 +149,73 @@ def main():
     ###EXTRACT CONTENT FEATURES HERE ON TRAIN ONLY###
     #Transform on both train and test
     
-    # Use tf-idf features
-    print("Extracting tf-idf features...")
-    tfidf_vectorizer = TfidfVectorizer(max_df=0.95, min_df=2,
-                                       max_features=n_features,
-                                       strip_accents = 'unicode',
-                                       tokenizer = LemmaTokenizer(),
-                                       ngram_range = (1,3),
-                                       stop_words=all_stop_words_punct)
-    t0 = time()
-    tfidf = tfidf_vectorizer.fit_transform(thread_df['Message Bodies'])  #Change this to train only
-    #transform on test here
-    print("done in %0.3fs." % (time() - t0))
-    #tfidf_feature_names = tfidf_vectorizer.get_feature_names()
-    #print (tfidf_feature_names)
-    #print (type(tfidf))
-    
-    #Builds the final feature set of user, thread, and content features
-    tfidf_thread_X = hstack((thread_X_csr, tfidf)) #Change this to train only
-    #add test here
-    
-    #Use tf (raw term count)
-    print("Extracting tf features...")
-    tf_vectorizer = CountVectorizer(max_df=0.95, min_df=2,
-                                    max_features=n_features,
-                                    strip_accents = 'unicode',
-                                    tokenizer = LemmaTokenizer(),
-                                    ngram_range = (1,3),
-                                    stop_words=all_stop_words_punct)
-    t0 = time()
-    tf = tf_vectorizer.fit_transform(thread_df['Message Bodies'])  #Change this to train only
-    #transform on test here
-    print("done in %0.3fs." % (time() - t0))
-    #tf_feature_names = tf_vectorizer.get_feature_names()
-    #print (tf_feature_names)
-    
-    #Builds the final feature set of user, thread, and content features
-    tf_thread_X = hstack((thread_X_csr, tf))  #Change this to train only
-    #add test here
+    # # Use tf-idf features
+    # print("Extracting tf-idf features...")
+    # tfidf_vectorizer = TfidfVectorizer(max_df=0.95, min_df=2,
+    #                                    max_features=n_features,
+    #                                    strip_accents = 'unicode',
+    #                                    tokenizer = LemmaTokenizer(),
+    #                                    ngram_range = (1,3),
+    #                                    stop_words=all_stop_words_punct)
+    # t0 = time()
+    # tfidf = tfidf_vectorizer.fit_transform(thread_df['Message Bodies'])  #Change this to train only
+    # #transform on test here
+    # print("done in %0.3fs." % (time() - t0))
+    # #tfidf_feature_names = tfidf_vectorizer.get_feature_names()
+    # #print (tfidf_feature_names)
+    # #print (type(tfidf))
+    # 
+    # #Builds the final feature set of user, thread, and content features
+    # tfidf_thread_X = hstack((thread_X_csr, tfidf)) #Change this to train only
+    # #add test here
+    # 
+    # #Use tf (raw term count)
+    # print("Extracting tf features...")
+    # tf_vectorizer = CountVectorizer(max_df=0.95, min_df=2,
+    #                                 max_features=n_features,
+    #                                 strip_accents = 'unicode',
+    #                                 tokenizer = LemmaTokenizer(),
+    #                                 ngram_range = (1,3),
+    #                                 stop_words=all_stop_words_punct)
+    # t0 = time()
+    # tf = tf_vectorizer.fit_transform(thread_df['Message Bodies'])  #Change this to train only
+    # #transform on test here
+    # print("done in %0.3fs." % (time() - t0))
+    # #tf_feature_names = tf_vectorizer.get_feature_names()
+    # #print (tf_feature_names)
+    # 
+    # #Builds the final feature set of user, thread, and content features
+    # tf_thread_X = hstack((thread_X_csr, tf))  #Change this to train only
+    # #add test here
     
     #NEED TO MOVE THIS
     print('Original dataset shape {}'.format(Counter(thread_y)))
     rus = RandomUnderSampler(random_state=42)
-    tfidf_thread_X_res, tfidf_thread_y_res = rus.fit_sample(tfidf_thread_X, thread_y)
-    tf_thread_X_res, tf_thread_y_res = rus.fit_sample(tf_thread_X, thread_y)
+    #tfidf_thread_X_res, tfidf_thread_y_res = rus.fit_sample(tfidf_thread_X, thread_y)
+    #tf_thread_X_res, tf_thread_y_res = rus.fit_sample(tf_thread_X, thread_y)
     thread_X_res, thread_y_res = rus.fit_sample(thread_X, thread_y)
     print('Resampled dataset shape {}'.format(Counter(thread_y_res)))
     
-    ###CAN IGNORE EVERYTHING UNDER HERE THAT TRAINS###
-    #try without text data
-    print ('Creating model for no text training...')
-    train_basic_rf(thread_X_res, thread_y_res)
+    Xtrain, Xtest, ytrain, ytest = train_test_split(thread_X_res, 
+                                                    tfidf_thread_y_res, 
+                                                    thread_y_res=42, 
+                                                    train_size=.7, 
+                                                    test_size=.3)
+    xss_train, xss_test = standardscale(Xtrain, Xtest)
+    print(Xtrain.shape)
+    print(Xtest.shape)
     
-    #Create 70-30 splits
-    print ('Creating model for tfidf training...')
-    train_basic_rf(tfidf_thread_X_res, tfidf_thread_y_res)
-    
-    #Create 70-30 splits
-    print ('Creating model for tf training...')
-    train_basic_rf(tf_thread_X_res, tf_thread_y_res)
+    # ###CAN IGNORE EVERYTHING UNDER HERE THAT TRAINS###
+    # #try without text data
+    # print ('Creating model for no text training...')
+    # train_basic_rf(thread_X_res, thread_y_res)
+    # 
+    # #Create 70-30 splits
+    # print ('Creating model for tfidf training...')
+    # train_basic_rf(tfidf_thread_X_res, tfidf_thread_y_res)
+    # 
+    # #Create 70-30 splits
+    # print ('Creating model for tf training...')
+    # train_basic_rf(tf_thread_X_res, tf_thread_y_res)
     
 if __name__ == '__main__': main()
